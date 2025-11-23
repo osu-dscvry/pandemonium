@@ -1,0 +1,8 @@
+# web framework
+fastapi==0.121.0
+uvicorn[standard]==0.23.2
+asyncpg==0.30.0
+redis==7.0.1
+ossapi==5.3.3
+python-dotenv==1.2.1
+qdrant-client==1.16.0
