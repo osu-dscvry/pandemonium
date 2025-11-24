@@ -7,6 +7,7 @@ from alembic import context
 from app import database, settings
 import app.database.beatmaps
 import app.database.players
+import app.database.groups
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

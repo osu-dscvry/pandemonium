@@ -1,13 +1,10 @@
+import enum
 from . import Base
 from sqlalchemy import (
     Column, Integer, String, Float, JSON, Enum,
     ForeignKey, Table, Index
 )
 from sqlalchemy.orm import relationship
-import enum
-
-
-# --- enums ----------------------------------------------------
 
 class Mode(enum.StrEnum):
     STANDARD = "osu"
@@ -23,8 +20,6 @@ class BeatmapStatus(enum.IntEnum):
     APPROVED = 2
     QUALIFIED = 3
     LOVED = 4
-
-# --- models ----------------------------------------------------
 
 class BeatmapSet(Base):
     __tablename__ = "beatmapsets"
