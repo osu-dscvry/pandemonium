@@ -8,6 +8,7 @@ PORT = int(os.getenv("PORT", 8000))
 
 OSU_API_CLIENT_ID = int(os.getenv("OSU_API_CLIENT_ID", 0))
 OSU_API_CLIENT_SECRET = os.getenv("OSU_API_CLIENT_SECRET", "")
+OSU_API_REDIRECT_URL = os.getenv("OSU_API_REDIRECT_URL", "")
 
 PG_USER = os.getenv("PG_USER")
 PG_PASSWORD = os.getenv("PG_PASSWORD")
@@ -24,6 +25,8 @@ REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
+
+JWT_SECRET = os.getenv("JWT_SECRET")
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 WORKER_SLEEP_INTERVAL = float(os.getenv("WORKER_SLEEP_INTERVAL", 1))

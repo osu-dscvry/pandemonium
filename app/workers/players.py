@@ -109,7 +109,7 @@ class PlayerWorker(Worker):
         for top_score in await osu.user_scores(player.id, type="best", limit=100, mode=mode):
             activities.append(make_activity(
                 PlayerActivityType.SCORE.value,
-                map_id=top_score.id,
+                map_id=top_score.beatmap_id,
                 mapset_id=top_score.beatmap.beatmapset_id if top_score.beatmap is not None else None,
                 value={
                     "mode": top_score.ruleset_id,
@@ -123,7 +123,7 @@ class PlayerWorker(Worker):
         for recent_score in await osu.user_scores(player.id, type="recent", limit=100, mode=mode):
             activities.append(make_activity(
                 PlayerActivityType.SCORE.value,
-                map_id=recent_score.id,
+                map_id=recent_score.beatmap_id,
                 mapset_id=recent_score.beatmap.beatmapset_id if recent_score.beatmap is not None else None,
                 value={
                     "mode": recent_score.ruleset_id,

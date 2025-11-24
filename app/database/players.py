@@ -22,7 +22,7 @@ class Player(Base):
 
 class PlayerActivityType(enum.Enum):
     SCORE = "score"
-    FAVOURITE = "FAVOURITE"
+    FAVOURITE = "favourite"
     PINNED = "pinned"
     NOMINATED = "nominated"
 

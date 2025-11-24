@@ -1,6 +1,7 @@
 import ossapi
 import hashlib
 from . import Worker, WorkerState
+from ossapi.enums import RankStatus
 from app.logger import worker_logger as logger
 from datetime import datetime
 from app.database.beatmaps import BeatmapSet, Beatmap
@@ -23,14 +24,24 @@ class BeatmapWorker(Worker):
         # get the beatmapset from the database, or create it if it doesn't exist
         added_mapset = await get_session.get(BeatmapSet, beatmapset.id)
 
+        if beatmapset.status is not RankStatus.RANKED:
+            # temporarily ignore unranked maps
+
+            # even though you can tag beatmaps, the statuses of them are
+            # far too unpredictable to really trust the data for them
+            await get_session.close()
+
+            # TODO: delete maps that exist in the database and are
+            # currently unranked
+            return
+
         if added_mapset:
             do_update = True
             print(f"Beatmapset {beatmapset.id} already exists in the database, checking if it should be updated...")
 
-            if added_mapset.last_synced_at >= int(beatmapset.last_updated.timestamp()):
+            if added_mapset.status == beatmapset.status.value:
                 do_update = False
-            elif added_mapset.status == beatmapset.status.value:
-                do_update = False
+            #elif added_mapset.last_synced_at >= int(beatmapset.last_updated.timestamp()) # TODO: check if tags updated
 
             if not do_update:
                 print(f"Beatmapset {beatmapset.id} is up to date, skipping...")

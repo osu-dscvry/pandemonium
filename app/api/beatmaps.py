@@ -27,7 +27,7 @@ async def get_similar_beatmapsets(
     beatmaps = beatmaps.scalars().all()
 
     if len(beatmaps) == 0:
-        raise HTTPException(status_code=404, detail="Beatmapset not found")
+        raise HTTPException(status_code=404, detail="beatmapset not found")
 
     client = state.qdrant
     filter_conditions = []
