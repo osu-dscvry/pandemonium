@@ -2,8 +2,12 @@ import uvicorn
 import threading
 import asyncio
 import app.settings as settings
+
 from app.workers.beatmaps import BeatmapWorker
 from app.workers.players import PlayerWorker
+
+from app.database import async_session
+from app.database.groups import populate_groups_table
 
 # constants for the number of threads per worker type
 BEATMAP_WORKER_THREADS = 1
@@ -35,6 +39,9 @@ def start_worker(worker_class):
 
 async def main() -> int:
     threads = []
+
+    # populate tables
+    await populate_groups_table(async_session()) # type: ignore
 
     for _ in range(BEATMAP_WORKER_THREADS):
         threads.append(start_worker(BeatmapWorker))
