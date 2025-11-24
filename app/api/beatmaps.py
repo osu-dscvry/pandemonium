@@ -1,4 +1,5 @@
 import numpy
+import math
 from fastapi import APIRouter, HTTPException, Query, Depends
 from .state import APIState, get_state
 from qdrant_client.models import Filter,FieldCondition,Range,MatchValue
@@ -9,8 +10,90 @@ from app.database.beatmaps import Beatmap, BeatmapSet
 router = APIRouter()
 
 ALPHA_TAGS = 0.65      # tag overlap weight
-BETA_META = 0.25       # metadata similarity weight (unused for now)
-CANDIDATE_LIMIT = 250  # candidacy limit for vectors
+BETA_META = 0.25       # metadata similarity weight
+CANDIDATE_LIMIT = 1000  # candidacy limit for vectors
+
+# -----------------------
+# tags
+def compute_tag_score(orig_payload, cand_payload, alpha):
+    orig_tags_counts = orig_payload.get("user_tags", {})
+    cand_tags_counts = cand_payload.get("user_tags", {})
+
+    orig_tags = set(orig_tags_counts.keys())
+    cand_tags = set(cand_tags_counts.keys())
+
+    overlap_tags = orig_tags & cand_tags
+    # weighted overlap: sum of minimum counts
+    overlap_weight = sum(min(orig_tags_counts[t], cand_tags_counts[t]) for t in overlap_tags)
+
+    # total weight: sum of all counts minus overlapping to avoid double-count
+    total_weight = sum(orig_tags_counts.values()) + sum(cand_tags_counts.values()) - overlap_weight
+
+    if total_weight == 0:
+        return 0.0
+
+    # apply exponential boost to overlap
+    score = (overlap_weight ** alpha) / total_weight
+    return min(score, 1.0)  # cap at 1.0
+
+
+# -----------------------
+# metadata
+
+def star_bonus(sr1, sr2):
+    diff = abs(sr1 - sr2)
+    return math.exp(-diff * 1.5)
+
+def length_bonus(l1, l2):
+    diff = abs(l1 - l2)
+    return math.exp(-diff / 5)
+
+
+def meta_similarity(orig, cand):
+    score = 0.0
+
+    # mode / genre / language (binary)
+    score += 0.05 * (orig["artist"] == cand["artist"])
+    score += 0.05 * (orig["genre"] == cand["genre"])
+    score += 0.05 * (orig["language"] == cand["language"])
+    
+    # numeric decay similarity functions
+    def exp_decay_diff(v1, v2, scale=1.0):
+        return math.exp(-abs(v1 - v2) / scale)
+    
+    if orig["mode"] == "mania" and cand["mode"] == "mania":
+        # weigh cs before everything else as keymode
+        score += 0.05 * (orig["cs"] == cand["cs"])
+    else:
+        score += 0.01 * (orig["cs"] == cand["cs"])
+
+    score += 0.03 * star_bonus(orig["star_rating"], cand["star_rating"])
+    score += 0.03 * length_bonus(orig["length"], cand["length"])
+    score += 0.02 * exp_decay_diff(orig["bpm"], cand["bpm"], scale=10)
+    score += 0.01 * exp_decay_diff(orig.get("max_combo", 0), cand.get("max_combo", 0), scale=50)
+
+    # temporarily commented out as play count doesn't really measure
+    # map similarity
+
+    # score += 0.01 * exp_decay_diff(orig.get("play_count", 0), cand.get("play_count", 0), scale=1000)
+    # score += 0.01 * exp_decay_diff(orig.get("favourite_count", 0), cand.get("favourite_count", 0), scale=100)
+
+    return score
+
+
+# ---------------------------
+# final score
+
+def total_similarity(orig, cand):
+    tags = compute_tag_score(orig, cand, 2)
+    meta = meta_similarity(orig, cand)
+
+    score = (
+        ALPHA_TAGS * tags +
+        BETA_META  * meta
+    )
+
+    return min(max(score, 0.0), 1.0)  # clamp 0–1
 
 @router.get("/beatmapsets/{beatmapset_id}/similar")
 async def get_similar_beatmapsets(
@@ -132,23 +215,30 @@ async def get_similar_beatmapsets_from_beatmap(
     candidate_ids = [p.id for p in candidate_points]
     result = await session.execute(select(Beatmap).where(Beatmap.id.in_(candidate_ids)))
 
-    def compute_tag_score(orig_payload, cand_payload):
-        # both are dicts mapping tag_id -> count (or 1 if presence-only)
-        orig_tags = set(orig_payload.get("user_tags", {}).keys())
-        cand_tags = set(cand_payload.get("user_tags", {}).keys())
-
-        print(orig_tags)
-        overlap = len(orig_tags & cand_tags)
-        total = len(orig_tags | cand_tags)
-        return (overlap / total) if total > 0 else 0.0
-
     weighted_candidates = []
-    for point in candidate_points:
-        tag_score = compute_tag_score(vectors[0].payload, point.payload)
-        overall_score = ALPHA_TAGS * tag_score
-        weighted_candidates.append((overall_score, point))
 
-        weighted_candidates.sort(key=lambda x: x[0], reverse=True)
+    for point in candidate_points:
+        overall_score = total_similarity(
+            vectors[0].payload,
+            point.payload,
+        )
+
+        weighted_candidates.append((overall_score, point))
+    
+    weighted_candidates.sort(key=lambda x: x[0], reverse=True)
+
+    
+    for score, candidate in weighted_candidates:
+        orig = vectors[0].payload
+        cand = candidate.payload
+        print(cand["title"])
+
+        if "Painters" in cand["title"]:
+
+            print(orig["user_tags"])
+            print(cand["user_tags"])
+            print(f"score: {score} - original: {orig["title"]} / candidate: {cand["title"]}")
+            print("")
 
     seen_mapsets = set()
     results = []

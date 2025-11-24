@@ -40,9 +40,6 @@ def start_worker(worker_class):
 async def main() -> int:
     threads = []
 
-    # populate tables
-    await populate_groups_table(async_session()) # type: ignore
-
     for _ in range(BEATMAP_WORKER_THREADS):
         threads.append(start_worker(BeatmapWorker))
 

@@ -1,5 +1,6 @@
 import ossapi
 import hashlib
+import numpy
 from . import Worker, WorkerState
 from ossapi.enums import RankStatus
 from app.logger import worker_logger as logger
@@ -94,7 +95,7 @@ class BeatmapWorker(Worker):
             "status": beatmapset.status.value,
             "play_count": beatmapset.play_count,
             "favourite_count": beatmapset.favourite_count,
-            "last_synced_at": int(datetime.utcnow().timestamp()),
+            "last_synced_at": int(datetime.utcnow().timestamp())
         }
 
         stmt = insert(BeatmapSet)
@@ -143,10 +144,15 @@ class BeatmapWorker(Worker):
                 "beatmap_id": beatmap.id,
                 "title": beatmapset.title,
                 "artist": beatmapset.artist,
-                "creator": beatmapset.creator,
-                "mode": beatmap.mode.value,
                 "genre": beatmapset.genre["id"] if beatmapset.genre else 0,
                 "language": beatmapset.language["id"] if beatmapset.language else 0,
+                "creator": beatmapset.creator,
+                "mode": beatmap.mode.value,
+                "bpm": beatmap.bpm,
+                "cs": beatmap.cs,
+                "ar": beatmap.ar,
+                "od": beatmap.accuracy,
+                "hp": beatmap.drain,
                 "tags": beatmapset.tags.split(),
                 "user_tags": top_tags_payload,  # just ids + counts
                 "play_count": beatmapset.play_count,
@@ -154,6 +160,7 @@ class BeatmapWorker(Worker):
                 "status": beatmapset.status.value,
                 "star_rating": beatmap.difficulty_rating,
                 "length": beatmap.total_length,
+                "max_combo": beatmap.max_combo,
                 "embed_version": 1,
             }
             
@@ -171,34 +178,46 @@ class BeatmapWorker(Worker):
 
         pass
 
-    def compute_beatmap_embedding(self, beatmapset: ossapi.Beatmapset, beatmap: ossapi.Beatmap):
-        vector = [
-            float(beatmap.difficulty_rating or 0) / 10.0,
-            float(beatmap.bpm or 0) / 300.0,
-            float(beatmap.total_length or 0) / 600.0,
-            float(beatmap.cs or 0) / 10.0,
-            float(beatmap.ar or 0) / 10.0,
-            float(beatmap.accuracy or 0) / 10.0,
-            float(beatmap.drain or 0) / 10.0,
-            float(beatmap.hit_length or 0) / 2000.0,
-        ]
-        
-        # encode top N user tags
-        TAG_SCALE = 1000.0  # dominates everything else
-        top_n = 20
-        for i in range(top_n):
-            if i < len(beatmap.top_tag_ids or []):
-                tag = beatmap.top_tag_ids[i]
-                vector.append(TAG_SCALE * tag_to_float(tag["tag_id"])) # type: ignore
-            else:
-                vector.append(0.0)
+    def compute_beatmap_embedding(self, beatmapset, beatmap):
+        # numeric features (normalize)
+        numeric = numpy.array([
+            float(beatmap.difficulty_rating or 0) / 10.0,     # SR
+            float(beatmap.bpm or 0) / 400.0,                  # BPM
+            float(beatmap.total_length or 0) / 1500.0,        # total audio length
+            float(beatmap.cs or 0) / 10.0,                    # CS
+            float(beatmap.ar or 0) / 10.0,                    # AR
+            float(beatmap.accuracy or 0) / 10.0,              # OD
+            float(beatmap.drain or 0) / 10.0,                 # HP
+            float(beatmap.hit_length or 0) / 1200.0,          # active drain time
+        ], dtype=numpy.float32)
 
-        while len(vector) < 512:
-            vector.append(0.0)
-            
-        return vector
+        # hashed tag bag
+        TAG_DIM = 256
+        TAG_WEIGHT = 4.0
+
+        tag_vec = numpy.zeros(TAG_DIM, dtype=numpy.float32)
+
+        for tag in (beatmap.top_tag_ids or []):
+            t = tag["tag_id"]
+            idx = hash_tag(t, TAG_DIM)
+            tag_vec[idx] += 1.0
+
+        # normalize tag block so counts don't distort direction
+        if numpy.linalg.norm(tag_vec) > 0:
+            tag_vec /= numpy.linalg.norm(tag_vec)
+
+        emb = numpy.concatenate([
+            numeric,
+            TAG_WEIGHT * tag_vec,
+        ])
+
+        # pad to 512 dims
+        if emb.shape[0] < 512:
+            emb = numpy.pad(emb, (0, 512 - emb.shape[0]), mode='constant')
+
+        return emb
     
-def tag_to_float(tag_id: int) -> float:
-    # deterministic hash to [0,1)
-    h = hashlib.md5(str(tag_id).encode()).hexdigest()
-    return int(h[:8], 16) / 0xFFFFFFFF
+def hash_tag(tag_id, dim=256):
+    # stable integer hash
+    h = int(hashlib.md5(str(tag_id).encode()).hexdigest(), 16)
+    return h % dim

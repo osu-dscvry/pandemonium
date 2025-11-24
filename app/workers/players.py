@@ -70,15 +70,32 @@ class PlayerWorker(Worker):
             ))
 
 
-        for mode in ["osu", "taiko", "fruits", "mania"]:
+        for mode in ["osu"]: # standard only for now -- , "taiko", "fruits", "mania"
             await self.process_player(player, mode, activities)
             
         # batch upsert
         for act in activities:
             # enqueue for beatmap processing if mapset_id is present
             if act["mapset_id"]:
-                print(f"Enqueuing beatmapset {act['mapset_id']} for processing due to player activity.")
-                await pool.rpush("pandemonium:beatmap_queue", act["mapset_id"])
+                qname = "pandemonium:beatmap_queue"
+                member = str(act["mapset_id"]) if act["mapset_id"] is not None else None
+                if member is not None:
+                    found = False
+                    try:
+                        pos = await pool.lpos(qname, member)
+                        if pos is not None:
+                            found = True
+                    except Exception:
+                        # LPOS may not be supported by older redis clients/servers; fallback to LRANGE
+                        existing = await pool.lrange(qname, 0, -1)
+                        if member in existing:
+                            found = True
+
+                    if not found:
+                        print(f"Enqueuing beatmapset {member} for processing due to player activity.")
+                        await pool.rpush(qname, member)
+                    else:
+                        print(f"Beatmapset {member} already enqueued, skipping")
 
             stmt = insert(PlayerActivity).values(**act)
             stmt = stmt.on_conflict_do_update(
@@ -106,7 +123,7 @@ class PlayerWorker(Worker):
                 "created_at": datetime.utcnow()
             }
 
-        for top_score in await osu.user_scores(player.id, type="best", limit=100, mode=mode):
+        for top_score in await osu.user_scores(player.id, type="best", limit=200, mode=mode):
             activities.append(make_activity(
                 PlayerActivityType.SCORE.value,
                 map_id=top_score.beatmap_id,
