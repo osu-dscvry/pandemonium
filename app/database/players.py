@@ -3,7 +3,9 @@ from sqlalchemy import (
     Column, Integer, String, Float, JSON, Enum,
     ForeignKey, Index, BigInteger, TIMESTAMP
 )
+from sqlalchemy.orm import relationship
 from .beatmaps import Mode
+from .groups import user_groups
 import enum
 
 class Player(Base):
@@ -19,6 +21,8 @@ class Player(Base):
     joined_at = Column(Integer)  # timestamp
     last_synced_at = Column(Integer)  # timestamp
     settings = Column(JSON, default={})  # user-configurable discovery settings, etc.
+    
+    groups = relationship("Group", secondary=user_groups, back_populates="members")
 
 class PlayerActivityType(enum.Enum):
     SCORE = "score"
