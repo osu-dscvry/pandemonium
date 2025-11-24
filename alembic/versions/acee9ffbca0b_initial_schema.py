@@ -75,7 +75,7 @@ def upgrade() -> None:
     op.create_table('player_activity',
     sa.Column('id', sa.BigInteger(), nullable=False),
     sa.Column('player_id', sa.BigInteger(), nullable=True),
-    sa.Column('type', sa.Enum('score', 'FAVOURITE', 'pinned', 'nominated', name='playeractivitytype'), nullable=True),
+    sa.Column('type', sa.Enum('score', 'favourite', 'pinned', 'nominated', name='playeractivitytype'), nullable=True),
     sa.Column('map_id', sa.BigInteger(), nullable=True),
     sa.Column('mapset_id', sa.BigInteger(), nullable=True),
     sa.Column('value', sa.JSON(), nullable=True),
