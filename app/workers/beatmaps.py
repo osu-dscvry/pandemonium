@@ -24,6 +24,52 @@ class BeatmapWorker(Worker):
         # get the beatmapset from the database, or create it if it doesn't exist
         added_mapset = await get_session.get(BeatmapSet, beatmapset.id)
 
+        if added_mapset:
+            do_update = True
+            print(f"Beatmapset {beatmapset.id} already exists in the database, checking if it should be updated...")
+
+            if added_mapset.status != beatmapset.status.value:
+                # the status is different
+                do_update = True
+            elif added_mapset.last_synced_at >= int(beatmapset.last_updated.timestamp()):
+                do_update = False
+                
+                # it's safe to assume that generally, if the last sync time was 
+                # after the set last updated, then it likely shouldn't be updated.
+                # however, there are some circumstances where it shouldn't be
+                beatmap_embeddings = await self.state.qdrant.retrieve(
+                    collection_name="beatmap_embeddings",
+                    ids=[bm.id for bm in beatmapset.beatmaps if beatmapset.beatmaps is not None],
+                    with_payload=True,
+                )
+
+                # build a map of current beatmaps for quick lookup
+                beatmap_by_id = {bm.id: bm for bm in (beatmapset.beatmaps or [])}
+
+                for point in beatmap_embeddings:
+                    pid = point.id
+                    payload = getattr(point, "payload", {}) or {}
+                    existing_tags = payload.get("user_tags", {})
+
+                    bm = beatmap_by_id.get(pid)
+                    if not bm:
+                        continue
+
+                    # normalize both sides to {str(tag_id): int(count)} for comparison
+                    current_tags = {str(tag["tag_id"]): int(tag["count"]) for tag in (bm.top_tag_ids or [])}
+                    existing_tags_norm = {str(k): int(v) for k, v in (existing_tags or {}).items()}
+
+                    if current_tags != existing_tags_norm:
+                        do_update = True
+                        print(f"Detected tag differences for beatmap {pid}, marking set for update")
+                        break
+
+            if not do_update:
+                print(f"Beatmapset {beatmapset.id} is up to date, skipping...")
+                await session.close()
+                await get_session.close()
+                return
+
         if beatmapset.status is not RankStatus.RANKED:
             # temporarily ignore unranked maps
 
@@ -34,20 +80,6 @@ class BeatmapWorker(Worker):
             # TODO: delete maps that exist in the database and are
             # currently unranked
             return
-
-        if added_mapset:
-            do_update = True
-            print(f"Beatmapset {beatmapset.id} already exists in the database, checking if it should be updated...")
-
-            if added_mapset.status == beatmapset.status.value:
-                do_update = False
-            #elif added_mapset.last_synced_at >= int(beatmapset.last_updated.timestamp()) # TODO: check if tags updated
-
-            if not do_update:
-                print(f"Beatmapset {beatmapset.id} is up to date, skipping...")
-                await session.close()
-                await get_session.close()
-                return
             
         await get_session.close()
         values = {
